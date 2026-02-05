@@ -1,0 +1,286 @@
+{
+  "version": "2026.1",
+  "last_updated": "2026-02-05",
+  "nationwide_standards": {
+    "hvac": {
+      "refrigerant_mandate": {
+        "effective_date": "2026-01-01",
+        "requirement": "EPA 2026: GWP < 700 only",
+        "approved_refrigerants": ["R-454B", "R-32", "R-290"],
+        "phased_out": ["R-410A", "R-22", "R-407C"],
+        "source": "EPA AIM Act Final Rule"
+      },
+      "efficiency_standards": {
+        "seer2_north": 14.3,
+        "seer2_south": 15.0,
+        "seer2_southwest": 15.0,
+        "hspf2_minimum": 7.5,
+        "effective_date": "2023-01-01",
+        "source": "DOE Energy Conservation Standards"
+      },
+      "epa_608_certification": {
+        "required": true,
+        "certification_types": ["Type I", "Type II", "Type III", "Universal"],
+        "recovery_requirement": "90% minimum refrigerant recovery"
+      }
+    },
+    "plumbing": {
+      "watersense_standard": {
+        "toilets_gpf": 1.28,
+        "urinals_gpf": 0.5,
+        "showerheads_gpm": 2.0,
+        "lavatory_faucets_gpm": 1.5,
+        "kitchen_faucets_gpm": 2.2,
+        "source": "EPA WaterSense Program"
+      },
+      "pfas_reporting": {
+        "effective_date": "2026-01-01",
+        "requirement": "Mandatory disclosure for industrial-scale residential filtration",
+        "threshold": "4 ppt combined PFAS",
+        "source": "EPA PFAS Strategic Roadmap"
+      },
+      "water_heater_efficiency": {
+        "gas_uef_minimum": 0.64,
+        "electric_uef_minimum": 0.93,
+        "heat_pump_uef_minimum": 2.0,
+        "source": "DOE Water Heater Standards 2029"
+      }
+    },
+    "electrical": {
+      "ev_ready": {
+        "nec_2026_requirement": "240V/50A circuit in new construction",
+        "panel_capacity_minimum": "200A recommended",
+        "charger_types": ["Level 1", "Level 2", "DC Fast Charge"],
+        "source": "NEC 2026 Article 625"
+      },
+      "solar_readiness": {
+        "new_construction": "Solar-ready zone required",
+        "minimum_roof_area": "300 sq ft unobstructed",
+        "conduit_requirement": "3/4 inch minimum to main panel",
+        "source": "IRC 2024 Appendix RB"
+      },
+      "grid_load_shifting": {
+        "smart_thermostat_requirement": "DR-capable for utility programs",
+        "time_of_use_compatibility": true,
+        "battery_storage_incentive": "ITC 30% through 2032"
+      }
+    },
+    "landscaping": {
+      "electrification": {
+        "target_ratio": 0.75,
+        "equipment_types": ["mowers", "blowers", "trimmers", "chainsaws"],
+        "carb_compliance_date": "2024-01-01",
+        "source": "CARB SORE Rule"
+      },
+      "irrigation": {
+        "smart_controller_requirement": "EPA WaterSense certified",
+        "weather_based_shutoff": true,
+        "drip_conversion_incentive": "Local utility rebates available",
+        "source": "EPA WaterSense Smart Controller"
+      },
+      "stormwater": {
+        "permeable_surfaces_incentive": true,
+        "rain_garden_credit": "Up to 1000 gallons/event",
+        "source": "EPA MS4 Stormwater Program"
+      }
+    },
+    "waste": {
+      "landfill_diversion": {
+        "target_rate": 0.75,
+        "recyclable_materials": ["metals", "cardboard", "plastics_1-2", "e-waste"],
+        "hazmat_disposal": "EPA RCRA compliance required",
+        "source": "EPA Sustainable Materials Management"
+      },
+      "construction_debris": {
+        "diversion_requirement": 0.65,
+        "documentation_required": true,
+        "source": "Local jurisdiction varies"
+      },
+      "appliance_recycling": {
+        "rac_certification": "EPA RAD program",
+        "refrigerant_recovery": "100% required",
+        "foam_blowing_agent_recovery": "90% target"
+      }
+    }
+  },
+  "state_overrides": {
+    "CA": {
+      "primary_law": "SB 253 Climate Corporate Data Accountability Act",
+      "secondary_law": "SB 261 Climate-Related Financial Risk Act",
+      "requirements": {
+        "scope_1_reporting": "Required for >$1B revenue",
+        "scope_2_reporting": "Required for >$1B revenue",
+        "scope_3_reporting": "Required for >$1B revenue (2027)",
+        "affects_subcontractors": true,
+        "threshold_note": "Applies to companies doing business in CA regardless of HQ location"
+      },
+      "title_24": {
+        "part_6": "Building Energy Efficiency Standards",
+        "solar_mandate": "New residential construction",
+        "battery_storage": "Required for new construction 2026+"
+      },
+      "carb_regulations": {
+        "sore_rule": "Small Off-Road Engine phase-out",
+        "effective_date": "2024-01-01",
+        "full_ban_date": "2028-01-01"
+      },
+      "water": {
+        "indoor_per_capita": "52.5 gallons/day by 2025",
+        "outdoor_landscape_factor": 0.55,
+        "model_water_efficient_landscape_ordinance": true
+      }
+    },
+    "TX": {
+      "grid_status": "ERCOT independent grid",
+      "demand_response": {
+        "program": "ERCOT Demand Response Program",
+        "incentives": "Smart thermostat credits available",
+        "peak_shaving_value": "Up to $9,000/MW during scarcity"
+      },
+      "water_rebates": {
+        "agency": "Texas Water Development Board",
+        "programs": ["Smart Irrigation Credits", "WaterSmart Rebate Program"],
+        "average_rebate": "$100-500 per upgrade"
+      },
+      "property_tax": {
+        "solar_exemption": "100% property tax exemption for solar",
+        "ev_charger_exemption": true
+      }
+    },
+    "NY": {
+      "climate_law": "Climate Leadership and Community Protection Act (CLCPA)",
+      "targets": {
+        "ghg_reduction_2030": 0.40,
+        "ghg_reduction_2050": 0.85,
+        "renewable_2030": 0.70,
+        "zero_emission_2040": 1.0
+      },
+      "building_codes": {
+        "nyc_local_law_97": "Building emissions caps",
+        "penalty_per_ton": 268,
+        "effective_2024": true
+      },
+      "nyserda_incentives": {
+        "heat_pump_rebate": "Up to $14,000",
+        "ev_charger_rebate": "Up to $4,000",
+        "solar_incentive": "$/watt declining block"
+      }
+    },
+    "FL": {
+      "building_code": "Florida Building Code 8th Edition",
+      "hurricane_resilience": {
+        "impact_rated_equipment": "Required in HVDR zones",
+        "elevation_requirements": "Varies by flood zone"
+      },
+      "solar": {
+        "net_metering": "Available with limitations",
+        "property_tax_exemption": "80% of added value exempt"
+      }
+    },
+    "WA": {
+      "clean_buildings_act": {
+        "effective_date": "2026-01-01",
+        "applies_to": "Commercial >50,000 sq ft",
+        "residential_multifamily": ">20,000 sq ft"
+      },
+      "heat_pump_mandate": {
+        "new_construction": "2024",
+        "replacement": "2030"
+      }
+    },
+    "CO": {
+      "ghg_roadmap": {
+        "reduction_2025": 0.26,
+        "reduction_2030": 0.50,
+        "reduction_2050": 0.90
+      },
+      "building_performance_standard": {
+        "effective_date": "2024-01-01",
+        "large_buildings": ">50,000 sq ft"
+      }
+    }
+  },
+  "ira_tax_credits": {
+    "residential": {
+      "25C_home_improvement": {
+        "heat_pump_hvac": 0.30,
+        "heat_pump_water_heater": 0.30,
+        "insulation": 0.30,
+        "annual_cap": 1200,
+        "heat_pump_cap": 2000,
+        "effective_through": "2032-12-31"
+      },
+      "25D_clean_energy": {
+        "solar_pv": 0.30,
+        "battery_storage": 0.30,
+        "geothermal": 0.30,
+        "no_cap": true,
+        "effective_through": "2034-12-31"
+      },
+      "30D_ev_credit": {
+        "new_ev_max": 7500,
+        "used_ev_max": 4000,
+        "income_limits": true
+      }
+    },
+    "commercial": {
+      "45W_commercial_ev": {
+        "small_vehicle_max": 7500,
+        "large_vehicle_max": 40000,
+        "prevailing_wage_bonus": true
+      },
+      "48C_advanced_energy": {
+        "rate": 0.30,
+        "bonus_rate": 0.40,
+        "domestic_content_bonus": 0.10
+      },
+      "179D_building_deduction": {
+        "per_sqft_max": 5.00,
+        "energy_reduction_required": 0.25,
+        "prevailing_wage_bonus": true
+      }
+    }
+  },
+  "carbon_factors": {
+    "electricity_grid_avg": {
+      "unit": "kg_co2e_per_kwh",
+      "us_average": 0.42,
+      "source": "EPA eGRID 2024"
+    },
+    "natural_gas": {
+      "unit": "kg_co2e_per_therm",
+      "factor": 5.3,
+      "source": "EPA GHG Emission Factors Hub"
+    },
+    "propane": {
+      "unit": "kg_co2e_per_gallon",
+      "factor": 5.76,
+      "source": "EPA GHG Emission Factors Hub"
+    },
+    "refrigerants_gwp": {
+      "R-410A": 2088,
+      "R-22": 1810,
+      "R-454B": 466,
+      "R-32": 675,
+      "R-290": 3,
+      "source": "IPCC AR6"
+    }
+  },
+  "api_integrations": {
+    "watttime": {
+      "purpose": "Real-time grid carbon intensity",
+      "endpoint": "https://api2.watttime.org/v2/",
+      "data_types": ["index", "data", "forecast"]
+    },
+    "rewiring_america": {
+      "purpose": "IRA incentive lookups",
+      "endpoint": "https://api.rewiringamerica.org/api/v1/",
+      "data_types": ["incentives", "contractors", "savings"]
+    },
+    "noaa_weather": {
+      "purpose": "Weather-based irrigation shutoff",
+      "endpoint": "https://api.weather.gov/",
+      "data_types": ["forecast", "alerts", "precipitation"]
+    }
+  }
+}

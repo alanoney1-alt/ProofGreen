@@ -13,13 +13,15 @@ import {
   CreditCardIcon,
   ShieldCheckIcon,
   CpuChipIcon,
-  LinkIcon
+  LinkIcon,
+  GlobeAmericasIcon
 } from '@heroicons/react/24/outline'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Jobs', href: '/jobs', icon: BriefcaseIcon },
   { name: 'AI Agents', href: '/agents', icon: CpuChipIcon },
+  { name: 'Green Ledger', href: '/ledger', icon: GlobeAmericasIcon },
   { name: 'Compliance', href: '/compliance', icon: ShieldCheckIcon },
   { name: 'Metrics', href: '/metrics', icon: ChartBarIcon },
   { name: 'Reports', href: '/reports', icon: DocumentTextIcon },

@@ -21,6 +21,7 @@ import PublicReport from './pages/PublicReport'
 import Compliance from './pages/Compliance'
 import Integrations from './pages/Integrations'
 import AgentsDashboard from './pages/AgentsDashboard'
+import GreenLedgerDashboard from './components/GreenLedgerDashboard'
 
 // Protected Route wrapper
 function ProtectedRoute({ children }) {
@@ -73,6 +74,7 @@ function App() {
         <Route path="/compliance" element={<Compliance />} />
         <Route path="/integrations" element={<Integrations />} />
         <Route path="/agents" element={<AgentsDashboard />} />
+        <Route path="/ledger" element={<GreenLedgerDashboard />} />
       </Route>
 
       {/* Catch all */}
