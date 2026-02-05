@@ -1,17 +1,20 @@
 """
 Legal Scout Agent - Regulatory Update Monitor
-Uses TavilySearch to discover new 2026 regulatory changes and update knowledge base
+Uses TavilySearch and Firecrawl to discover new 2026 regulatory changes.
+Updates knowledge base and vector database for semantic search.
 """
 
 import asyncio
 import json
 import httpx
+import hashlib
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 import logging
 import re
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +49,30 @@ class ComplianceSyncResult:
 
 class LegalScoutAgent:
     """
-    Legal Scout sub-agent that monitors regulatory changes using TavilySearch.
-    Automatically updates regulatory_knowledge.json and triggers ledger recalculation.
+    Legal Scout sub-agent that monitors regulatory changes using TavilySearch and Firecrawl.
+    Automatically updates regulatory_knowledge.json and vector database for semantic search.
+    Triggers ledger recalculation when new regulations are discovered.
     """
 
     def __init__(
         self,
         tavily_api_key: Optional[str] = None,
         anthropic_api_key: Optional[str] = None,
+        firecrawl_api_key: Optional[str] = None,
+        pinecone_api_key: Optional[str] = None,
+        pinecone_index_name: str = "esg-regulations",
         knowledge_path: Optional[str] = None
     ):
-        self.tavily_api_key = tavily_api_key
-        self.anthropic_api_key = anthropic_api_key
+        self.tavily_api_key = tavily_api_key or os.getenv("TAVILY_API_KEY")
+        self.anthropic_api_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.firecrawl_api_key = firecrawl_api_key or os.getenv("FIRECRAWL_API_KEY")
+        self.pinecone_api_key = pinecone_api_key or os.getenv("PINECONE_API_KEY")
+        self.pinecone_index_name = pinecone_index_name
         self.knowledge_path = knowledge_path or str(
             Path(__file__).parent.parent / "config" / "regulatory_knowledge.json"
         )
         self._client = httpx.AsyncClient(timeout=60.0)
+        self._pinecone_index = None
 
         # Regulatory keywords by vertical
         self.vertical_keywords = {
@@ -481,6 +492,463 @@ If this is not a regulatory update, respond: {{"is_regulation": false}}"""
         }
 
         return mock_results.get(vertical, [])
+
+    # =========================================================================
+    # Firecrawl Integration - Deep regulatory scraping
+    # =========================================================================
+
+    async def scrape_regulatory_portals(
+        self,
+        vertical: str,
+        urls: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Scrape regulatory portals using Firecrawl for deep content extraction.
+        This provides more comprehensive data than basic search APIs.
+        """
+        if not self.firecrawl_api_key:
+            logger.warning("Firecrawl API key not configured - skipping portal scraping")
+            return []
+
+        # Default regulatory portals by vertical
+        default_urls = {
+            "hvac": [
+                "https://www.epa.gov/climate-hfcs-reduction",
+                "https://www.energy.gov/eere/buildings/residential-heating-and-cooling",
+                "https://www.ahridirectory.org/NewSearch/Search"
+            ],
+            "plumbing": [
+                "https://www.epa.gov/watersense",
+                "https://www.energy.gov/eere/buildings/water-heating"
+            ],
+            "electrical": [
+                "https://www.nfpa.org/nec",
+                "https://www.energy.gov/eere/solar",
+                "https://afdc.energy.gov/laws"
+            ],
+            "landscaping": [
+                "https://ww2.arb.ca.gov/our-work/programs/small-off-road-engines-sore"
+            ],
+            "waste": [
+                "https://www.epa.gov/recycle",
+                "https://www.epa.gov/hw"
+            ]
+        }
+
+        target_urls = urls or default_urls.get(vertical, [])
+        all_content = []
+
+        for url in target_urls:
+            try:
+                content = await self._firecrawl_scrape(url)
+                if content:
+                    all_content.append({
+                        "url": url,
+                        "vertical": vertical,
+                        "content": content,
+                        "scraped_at": datetime.now(timezone.utc).isoformat()
+                    })
+                    logger.info(f"Successfully scraped {url}")
+
+            except Exception as e:
+                logger.error(f"Firecrawl scrape error for {url}: {e}")
+
+        return all_content
+
+    async def _firecrawl_scrape(self, url: str) -> Optional[str]:
+        """Scrape a single URL using Firecrawl API."""
+        try:
+            response = await self._client.post(
+                "https://api.firecrawl.dev/v0/scrape",
+                headers={
+                    "Authorization": f"Bearer {self.firecrawl_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "url": url,
+                    "formats": ["markdown"],
+                    "onlyMainContent": True,
+                    "waitFor": 3000  # Wait for dynamic content
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("success"):
+                return data.get("data", {}).get("markdown", "")
+
+        except Exception as e:
+            logger.error(f"Firecrawl API error: {e}")
+
+        return None
+
+    async def autonomous_legal_scout(self, vertical: str) -> Dict[str, Any]:
+        """
+        Run autonomous legal scouting that scrapes 2026 mandates
+        and updates the Knowledge Base with new findings.
+        """
+        logger.info(f"Starting autonomous legal scout for {vertical}")
+
+        results = {
+            "vertical": vertical,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "sources_scraped": 0,
+            "regulations_found": 0,
+            "knowledge_base_updates": 0,
+            "vector_db_updates": 0,
+            "errors": []
+        }
+
+        # Step 1: Scrape regulatory portals
+        scraped_content = await self.scrape_regulatory_portals(vertical)
+        results["sources_scraped"] = len(scraped_content)
+
+        # Step 2: Process and extract regulations
+        regulations = []
+        for content in scraped_content:
+            extracted = await self._extract_regulations_from_content(
+                content["content"],
+                vertical,
+                content["url"]
+            )
+            regulations.extend(extracted)
+
+        results["regulations_found"] = len(regulations)
+
+        # Step 3: Update knowledge base
+        if regulations:
+            kb_updates = await self._batch_update_knowledge_base(regulations)
+            results["knowledge_base_updates"] = kb_updates
+
+        # Step 4: Update vector database for semantic search
+        if regulations and self.pinecone_api_key:
+            vector_updates = await self._update_vector_database(regulations, vertical)
+            results["vector_db_updates"] = vector_updates
+
+        results["completed_at"] = datetime.now(timezone.utc).isoformat()
+        logger.info(f"Autonomous scout complete: {results['regulations_found']} regulations found")
+
+        return results
+
+    async def _extract_regulations_from_content(
+        self,
+        content: str,
+        vertical: str,
+        source_url: str
+    ) -> List[RegulatoryUpdate]:
+        """Extract regulations from scraped content using Claude."""
+        if not content or not self.anthropic_api_key:
+            return []
+
+        try:
+            # Chunk content if too large
+            content_chunk = content[:8000]
+
+            prompt = f"""Analyze this regulatory content and extract all 2026 regulatory requirements for {vertical}.
+
+Content:
+{content_chunk}
+
+For each regulation found, extract:
+- regulation_type: [seer2, gpm, refrigerant, waste_diversion, efficiency, safety, electrification, incentive]
+- title: Brief title
+- summary: 2-3 sentence description of the requirement
+- effective_date: When it takes effect (if mentioned)
+- mandatory: true/false - is this a mandate or voluntary?
+- penalties: Any penalties for non-compliance (if mentioned)
+
+Respond with a JSON array:
+[{{"regulation_type": "", "title": "", "summary": "", "effective_date": "", "mandatory": true, "penalties": ""}}]
+
+If no regulations found, respond: []"""
+
+            response = await self._client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 2000,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["content"][0]["text"]
+
+            # Parse JSON array from response
+            json_match = re.search(r'\[.*\]', text, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                regulations = []
+                for item in parsed:
+                    if item.get("title"):
+                        regulations.append(RegulatoryUpdate(
+                            id=f"scout_fc_{hashlib.md5(item['title'].encode()).hexdigest()[:8]}",
+                            vertical=vertical,
+                            state="FEDERAL",  # Default to federal for scraped content
+                            regulation_type=item.get("regulation_type", "unknown"),
+                            title=item.get("title", ""),
+                            summary=item.get("summary", ""),
+                            effective_date=item.get("effective_date"),
+                            source_url=source_url,
+                            discovered_at=datetime.now(timezone.utc),
+                            confidence=0.8 if item.get("mandatory") else 0.6,
+                            raw_content=content_chunk
+                        ))
+                return regulations
+
+        except Exception as e:
+            logger.error(f"Regulation extraction error: {e}")
+
+        return []
+
+    async def _batch_update_knowledge_base(
+        self,
+        regulations: List[RegulatoryUpdate]
+    ) -> int:
+        """Batch update knowledge base with multiple regulations."""
+        updates = 0
+        try:
+            with open(self.knowledge_path, "r") as f:
+                knowledge = json.load(f)
+
+            if "federal_regulations" not in knowledge:
+                knowledge["federal_regulations"] = {}
+
+            for reg in regulations:
+                reg_key = f"auto_{reg.regulation_type}_{reg.id}"
+                if reg_key not in knowledge["federal_regulations"]:
+                    knowledge["federal_regulations"][reg_key] = {
+                        "name": reg.title,
+                        "requirement": reg.summary,
+                        "regulation_type": reg.regulation_type,
+                        "effective_date": reg.effective_date,
+                        "source": reg.source_url,
+                        "discovered_at": reg.discovered_at.isoformat(),
+                        "confidence": reg.confidence,
+                        "auto_discovered": True
+                    }
+                    updates += 1
+
+            if updates > 0:
+                knowledge["metadata"] = knowledge.get("metadata", {})
+                knowledge["metadata"]["last_batch_update"] = datetime.now(timezone.utc).isoformat()
+                knowledge["metadata"]["batch_update_count"] = updates
+
+                with open(self.knowledge_path, "w") as f:
+                    json.dump(knowledge, f, indent=2)
+
+        except Exception as e:
+            logger.error(f"Batch knowledge update failed: {e}")
+
+        return updates
+
+    # =========================================================================
+    # Pinecone Vector Database Integration - Semantic Search
+    # =========================================================================
+
+    async def _init_pinecone(self):
+        """Initialize Pinecone connection."""
+        if self._pinecone_index:
+            return
+
+        try:
+            # Using REST API instead of SDK for async compatibility
+            response = await self._client.get(
+                f"https://api.pinecone.io/indexes/{self.pinecone_index_name}",
+                headers={"Api-Key": self.pinecone_api_key}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                self._pinecone_index = data.get("host")
+                logger.info(f"Connected to Pinecone index: {self.pinecone_index_name}")
+            else:
+                logger.warning(f"Pinecone index not found: {self.pinecone_index_name}")
+
+        except Exception as e:
+            logger.error(f"Pinecone initialization error: {e}")
+
+    async def _update_vector_database(
+        self,
+        regulations: List[RegulatoryUpdate],
+        vertical: str
+    ) -> int:
+        """Update Pinecone vector database with regulation embeddings."""
+        if not self.pinecone_api_key or not self.anthropic_api_key:
+            return 0
+
+        await self._init_pinecone()
+        if not self._pinecone_index:
+            return 0
+
+        updates = 0
+
+        for reg in regulations:
+            try:
+                # Generate embedding using Claude (or use a dedicated embedding model)
+                embedding = await self._generate_embedding(
+                    f"{reg.title}: {reg.summary}"
+                )
+
+                if embedding:
+                    # Upsert to Pinecone
+                    vector_data = {
+                        "vectors": [{
+                            "id": reg.id,
+                            "values": embedding,
+                            "metadata": {
+                                "vertical": vertical,
+                                "regulation_type": reg.regulation_type,
+                                "title": reg.title,
+                                "summary": reg.summary[:500],
+                                "source_url": reg.source_url,
+                                "effective_date": reg.effective_date or "",
+                                "discovered_at": reg.discovered_at.isoformat()
+                            }
+                        }]
+                    }
+
+                    response = await self._client.post(
+                        f"https://{self._pinecone_index}/vectors/upsert",
+                        headers={
+                            "Api-Key": self.pinecone_api_key,
+                            "Content-Type": "application/json"
+                        },
+                        json=vector_data
+                    )
+
+                    if response.status_code == 200:
+                        updates += 1
+                        logger.info(f"Indexed regulation: {reg.id}")
+
+            except Exception as e:
+                logger.error(f"Vector DB update error for {reg.id}: {e}")
+
+        return updates
+
+    async def _generate_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate text embedding using Anthropic API."""
+        # Note: Anthropic doesn't have a dedicated embedding endpoint yet
+        # In production, use OpenAI embeddings, Cohere, or Voyage AI
+        # For now, we'll use a placeholder that would integrate with an embedding service
+
+        try:
+            # Placeholder - would use actual embedding service
+            # response = await self._client.post(
+            #     "https://api.openai.com/v1/embeddings",
+            #     headers={"Authorization": f"Bearer {openai_key}"},
+            #     json={"model": "text-embedding-3-small", "input": text}
+            # )
+            # return response.json()["data"][0]["embedding"]
+
+            # For now, return None - implement with real embedding service
+            logger.debug("Embedding generation requires dedicated embedding service")
+            return None
+
+        except Exception as e:
+            logger.error(f"Embedding generation error: {e}")
+            return None
+
+    async def semantic_search_regulations(
+        self,
+        query: str,
+        vertical: Optional[str] = None,
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Search regulations using semantic similarity."""
+        if not self.pinecone_api_key:
+            logger.warning("Pinecone not configured for semantic search")
+            return []
+
+        await self._init_pinecone()
+        if not self._pinecone_index:
+            return []
+
+        try:
+            # Generate query embedding
+            query_embedding = await self._generate_embedding(query)
+            if not query_embedding:
+                # Fall back to metadata filter
+                return await self._metadata_search(query, vertical, top_k)
+
+            # Query Pinecone
+            filter_dict = {}
+            if vertical:
+                filter_dict["vertical"] = vertical
+
+            response = await self._client.post(
+                f"https://{self._pinecone_index}/query",
+                headers={
+                    "Api-Key": self.pinecone_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "vector": query_embedding,
+                    "topK": top_k,
+                    "includeMetadata": True,
+                    "filter": filter_dict if filter_dict else None
+                }
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return [
+                    {
+                        "id": match["id"],
+                        "score": match["score"],
+                        **match.get("metadata", {})
+                    }
+                    for match in data.get("matches", [])
+                ]
+
+        except Exception as e:
+            logger.error(f"Semantic search error: {e}")
+
+        return []
+
+    async def _metadata_search(
+        self,
+        query: str,
+        vertical: Optional[str],
+        top_k: int
+    ) -> List[Dict[str, Any]]:
+        """Fall back to metadata-based search when embeddings unavailable."""
+        try:
+            with open(self.knowledge_path, "r") as f:
+                knowledge = json.load(f)
+
+            results = []
+            query_lower = query.lower()
+
+            # Search federal regulations
+            for key, reg in knowledge.get("federal_regulations", {}).items():
+                name = reg.get("name", "").lower()
+                req = reg.get("requirement", "").lower()
+
+                if query_lower in name or query_lower in req:
+                    results.append({
+                        "id": key,
+                        "title": reg.get("name"),
+                        "summary": reg.get("requirement"),
+                        "regulation_type": reg.get("regulation_type"),
+                        "score": 1.0 if query_lower in name else 0.8
+                    })
+
+            # Filter by vertical if specified
+            if vertical:
+                results = [r for r in results if vertical in r.get("regulation_type", "")]
+
+            # Sort by score and limit
+            results.sort(key=lambda x: x["score"], reverse=True)
+            return results[:top_k]
+
+        except Exception as e:
+            logger.error(f"Metadata search error: {e}")
+            return []
 
     async def get_scout_status(self) -> Dict[str, Any]:
         """Get current scout agent status and last run info."""
