@@ -25,6 +25,7 @@ class TransactionType(str, Enum):
     OFFSET = "offset"  # Carbon offset purchased
     REDUCTION = "reduction"  # Carbon reduced through improvements
     SEQUESTRATION = "sequestration"  # Carbon captured/stored
+    FINANCIAL_INCENTIVE = "financial_incentive"  # Tax credits/rebates captured
 
 
 class EmissionScope(str, Enum):
@@ -130,6 +131,12 @@ class LedgerSummary:
     trend_vs_previous: Optional[float]  # Percentage change
     sb253_ready: bool
     verification_rate: float  # Percentage of verified transactions
+    # Financial metrics
+    captured_revenue_total: float = 0.0  # Total tax credits and rebates captured
+    federal_credits_total: float = 0.0
+    state_rebates_total: float = 0.0
+    heehra_rebates_total: float = 0.0
+    customer_savings_total: float = 0.0
 
 
 class GreenLedger:
@@ -266,6 +273,47 @@ class GreenLedger:
         self._store_transaction(transaction)
         return transaction
 
+    def record_financial_incentive(
+        self,
+        company_id: UUID,
+        job_id: UUID,
+        amount: float,
+        incentive_type: str,  # federal_credit, state_rebate, heehra, utility_rebate
+        program_name: str,
+        description: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> CarbonTransaction:
+        """Record a captured financial incentive (tax credit or rebate)."""
+
+        previous_hash = self._chain[-1] if self._chain else None
+
+        transaction = CarbonTransaction(
+            id=uuid4(),
+            company_id=company_id,
+            job_id=job_id,
+            transaction_type=TransactionType.FINANCIAL_INCENTIVE,
+            scope=EmissionScope.SCOPE_3,  # Financial incentives tracked under scope 3
+            amount_kg_co2e=0,  # Not an emission
+            category=f"incentive_{incentive_type}",
+            description=description,
+            methodology="IRA/State Incentive Program",
+            sources=[program_name],
+            metadata={
+                **(metadata or {}),
+                "incentive_type": incentive_type,
+                "program_name": program_name,
+                "amount_dollars": amount,
+                "captured_at": datetime.now(timezone.utc).isoformat()
+            },
+            timestamp=datetime.now(timezone.utc),
+            previous_hash=previous_hash,
+            verification_status=VerificationStatus.PENDING
+        )
+
+        self._store_transaction(transaction)
+        logger.info(f"Recorded financial incentive: ${amount:.2f} ({incentive_type})")
+        return transaction
+
     def _store_transaction(self, transaction: CarbonTransaction):
         """Store transaction in ledger."""
         self._transactions[str(transaction.id)] = transaction
@@ -377,6 +425,7 @@ class GreenLedger:
         emissions = [tx for tx in transactions if tx.transaction_type == TransactionType.EMISSION]
         avoidances = [tx for tx in transactions if tx.transaction_type == TransactionType.AVOIDANCE]
         offsets = [tx for tx in transactions if tx.transaction_type == TransactionType.OFFSET]
+        incentives = [tx for tx in transactions if tx.transaction_type == TransactionType.FINANCIAL_INCENTIVE]
 
         scope_1 = sum(tx.amount_kg_co2e for tx in emissions if tx.scope == EmissionScope.SCOPE_1)
         scope_2 = sum(tx.amount_kg_co2e for tx in emissions if tx.scope == EmissionScope.SCOPE_2)
@@ -423,6 +472,21 @@ class GreenLedger:
             verification_rate > 0.8  # 80%+ verified
         )
 
+        # Calculate financial totals
+        federal_credits = sum(
+            tx.metadata.get("amount_dollars", 0) for tx in incentives
+            if tx.metadata.get("incentive_type") == "federal_credit"
+        )
+        state_rebates = sum(
+            tx.metadata.get("amount_dollars", 0) for tx in incentives
+            if tx.metadata.get("incentive_type") == "state_rebate"
+        )
+        heehra_rebates = sum(
+            tx.metadata.get("amount_dollars", 0) for tx in incentives
+            if tx.metadata.get("incentive_type") == "heehra"
+        )
+        total_captured = sum(tx.metadata.get("amount_dollars", 0) for tx in incentives)
+
         return LedgerSummary(
             company_id=company_id,
             period_start=start_date,
@@ -440,7 +504,12 @@ class GreenLedger:
             by_category=by_category,
             trend_vs_previous=trend,
             sb253_ready=sb253_ready,
-            verification_rate=verification_rate * 100
+            verification_rate=verification_rate * 100,
+            captured_revenue_total=total_captured,
+            federal_credits_total=federal_credits,
+            state_rebates_total=state_rebates,
+            heehra_rebates_total=heehra_rebates,
+            customer_savings_total=total_captured
         )
 
     def generate_sb253_report(

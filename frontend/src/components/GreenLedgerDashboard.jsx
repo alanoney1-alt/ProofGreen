@@ -11,7 +11,11 @@ import {
   GlobeAmericasIcon,
   BoltIcon,
   TruckIcon,
-  BeakerIcon
+  BeakerIcon,
+  CurrencyDollarIcon,
+  BanknotesIcon,
+  BuildingLibraryIcon,
+  HomeModernIcon
 } from '@heroicons/react/24/outline'
 
 const scopeColors = {
@@ -232,6 +236,63 @@ function ComplianceStatus({ sb253Ready, verificationRate }) {
   )
 }
 
+function FinancialSummary({ federalCredits, stateRebates, heehraRebates, totalCaptured }) {
+  const formatCurrency = (val) => {
+    if (val >= 1000000) {
+      return '$' + (val / 1000000).toFixed(1) + 'M'
+    }
+    if (val >= 1000) {
+      return '$' + (val / 1000).toFixed(1) + 'K'
+    }
+    return '$' + val.toFixed(0)
+  }
+
+  const incentiveBreakdown = [
+    { name: 'Federal Tax Credits (25C/25D)', amount: federalCredits, icon: BuildingLibraryIcon, color: 'blue' },
+    { name: 'State Rebates', amount: stateRebates, icon: HomeModernIcon, color: 'purple' },
+    { name: 'HEEHRA Rebates', amount: heehraRebates, icon: BanknotesIcon, color: 'green' }
+  ]
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Incentives Captured</h3>
+
+      {/* Total */}
+      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <CurrencyDollarIcon className="w-8 h-8 text-green-600" />
+            <div className="ml-3">
+              <p className="text-sm text-green-700">Total Revenue Captured</p>
+              <p className="text-2xl font-bold text-green-900">{formatCurrency(totalCaptured)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Breakdown */}
+      <div className="space-y-3">
+        {incentiveBreakdown.map((item) => (
+          <div key={item.name} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+            <div className="flex items-center">
+              <item.icon className={`w-5 h-5 text-${item.color}-500 mr-2`} />
+              <span className="text-sm text-gray-700">{item.name}</span>
+            </div>
+            <span className="text-sm font-semibold text-gray-900">{formatCurrency(item.amount)}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Customer savings note */}
+      <div className="mt-4 pt-4 border-t border-gray-200">
+        <p className="text-xs text-gray-500">
+          These incentives have been identified and/or captured for your customers through IRA tax credits and state rebate programs.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function GreenLedgerDashboard() {
   const { company } = useAuth()
   const [period, setPeriod] = useState('month')
@@ -273,7 +334,13 @@ export default function GreenLedgerDashboard() {
         transaction_count: 892,
         trend_vs_previous: -8.5,
         sb253_ready: true,
-        verification_rate: 87.5
+        verification_rate: 87.5,
+        // Financial metrics
+        captured_revenue_total: 24800,
+        federal_credits_total: 8500,
+        state_rebates_total: 6300,
+        heehra_rebates_total: 10000,
+        customer_savings_total: 24800
       })
       setTransactions([
         {
@@ -377,7 +444,7 @@ export default function GreenLedgerDashboard() {
       {/* Stats Grid */}
       {summary && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <StatCard
               title="Total Emissions"
               value={summary.total_emissions_kg}
@@ -403,6 +470,14 @@ export default function GreenLedgerDashboard() {
               color="primary"
             />
             <StatCard
+              title="Revenue Captured"
+              value={summary.captured_revenue_total || 0}
+              unit="USD"
+              trend={null}
+              icon={CurrencyDollarIcon}
+              color="emerald"
+            />
+            <StatCard
               title="Jobs Tracked"
               value={summary.job_count}
               unit="jobs"
@@ -413,18 +488,29 @@ export default function GreenLedgerDashboard() {
           </div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Scope Breakdown - Takes 1 column */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Scope Breakdown */}
             <ScopeBreakdown
               scope1={summary.scope_1_total}
               scope2={summary.scope_2_total}
               scope3={summary.scope_3_total}
             />
 
-            {/* Transactions - Takes 1 column */}
+            {/* Financial Summary */}
+            <FinancialSummary
+              federalCredits={summary.federal_credits_total || 0}
+              stateRebates={summary.state_rebates_total || 0}
+              heehraRebates={summary.heehra_rebates_total || 0}
+              totalCaptured={summary.captured_revenue_total || 0}
+            />
+          </div>
+
+          {/* Secondary Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Transactions */}
             <TransactionList transactions={transactions} />
 
-            {/* Compliance Status - Takes 1 column */}
+            {/* Compliance Status */}
             <ComplianceStatus
               sb253Ready={summary.sb253_ready}
               verificationRate={summary.verification_rate}
