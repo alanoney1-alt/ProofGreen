@@ -17,6 +17,8 @@ const documentsRoutes = require('./routes/documents');
 const complianceRoutes = require('./routes/compliance');
 const dataCollectionRoutes = require('./routes/dataCollection');
 const integrationsRoutes = require('./routes/integrations');
+const agentsRoutes = require('./routes/agents');
+const telematicsRoutes = require('./routes/telematics');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -70,6 +72,8 @@ app.use('/api/documents', documentsRoutes);
 app.use('/api/compliance', complianceRoutes);
 app.use('/api/data', dataCollectionRoutes);
 app.use('/api/integrations', integrationsRoutes);
+app.use('/api/agents', agentsRoutes);
+app.use('/api/telematics', telematicsRoutes);
 
 // 404 handler
 app.use((req, res) => {

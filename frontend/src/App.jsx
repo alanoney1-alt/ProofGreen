@@ -19,6 +19,8 @@ import Settings from './pages/Settings'
 import Pricing from './pages/Pricing'
 import PublicReport from './pages/PublicReport'
 import Compliance from './pages/Compliance'
+import Integrations from './pages/Integrations'
+import AgentsDashboard from './pages/AgentsDashboard'
 
 // Protected Route wrapper
 function ProtectedRoute({ children }) {
@@ -69,6 +71,8 @@ function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/compliance" element={<Compliance />} />
+        <Route path="/integrations" element={<Integrations />} />
+        <Route path="/agents" element={<AgentsDashboard />} />
       </Route>
 
       {/* Catch all */}
