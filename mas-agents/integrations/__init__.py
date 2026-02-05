@@ -22,6 +22,12 @@ from .generic_fsm_connector import (
     GREEN_LEDGER_FIELDS,
     generic_fsm_connector
 )
+from .auth_handler import (
+    AuthHandler,
+    AuthHealthChecker,
+    FSMProvider as AuthFSMProvider,
+    create_auth_handler
+)
 
 __all__ = [
     # Webhook Handler
@@ -42,4 +48,10 @@ __all__ = [
     "AuthType",
     "GREEN_LEDGER_FIELDS",
     "generic_fsm_connector",
+
+    # Auth Handler
+    "AuthHandler",
+    "AuthHealthChecker",
+    "AuthFSMProvider",
+    "create_auth_handler",
 ]
