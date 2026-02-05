@@ -21,6 +21,26 @@ const upload = multer({
   }
 });
 
+// GET /api/jobs/verticals
+router.get('/verticals', authenticate, async (req, res) => {
+  try {
+    const { data: verticals, error } = await supabase
+      .from('verticals')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      logger.error('Verticals fetch error:', error);
+      return res.status(500).json({ error: 'Failed to fetch verticals' });
+    }
+
+    res.json({ verticals });
+  } catch (error) {
+    logger.error('Get verticals error:', error);
+    res.status(500).json({ error: 'Failed to fetch verticals' });
+  }
+});
+
 // GET /api/jobs
 router.get('/', authenticate, [
   query('status').optional().isIn(['pending', 'in_progress', 'completed', 'cancelled']),

@@ -5,6 +5,144 @@ const { supabase } = require('../utils/supabase');
 const { authenticate } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
+const PDFDocument = require('pdfkit');
+const complianceService = require('../services/complianceService');
+
+// GET /api/reports/compliance/pdf - Generate compliance PDF report
+router.get('/compliance/pdf', authenticate, async (req, res) => {
+  try {
+    const { verticalId, dateRange } = req.query;
+
+    // Get company info
+    const { data: company } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', req.companyId)
+      .single();
+
+    // Get compliance data
+    const compliance = await complianceService.calculateCompanyCompliance(req.companyId);
+
+    // Get certifications
+    const { data: certifications } = await supabase
+      .from('certifications')
+      .select('*')
+      .eq('company_id', req.companyId)
+      .order('expires_at', { ascending: true });
+
+    // Get recent jobs with ESG scores
+    const { data: recentJobs } = await supabase
+      .from('jobs')
+      .select('*, verticals(name)')
+      .eq('company_id', req.companyId)
+      .not('esg_score', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    // Create PDF
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=compliance-report-${new Date().toISOString().split('T')[0]}.pdf`);
+
+    // Pipe PDF to response
+    doc.pipe(res);
+
+    // Header
+    doc.fontSize(24).fillColor('#059669').text('ESG Compliance Report', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(14).fillColor('#6B7280').text(company?.name || 'Company', { align: 'center' });
+    doc.fontSize(10).text(`Generated: ${new Date().toLocaleDateString()}`, { align: 'center' });
+    doc.moveDown(2);
+
+    // Overall Score
+    doc.fontSize(18).fillColor('#111827').text('Overall ESG Score');
+    doc.moveDown(0.5);
+
+    const scoreColor = compliance.overallScore >= 80 ? '#059669' :
+                       compliance.overallScore >= 60 ? '#D97706' : '#DC2626';
+    doc.fontSize(48).fillColor(scoreColor).text(`${compliance.overallScore}`, { continued: true });
+    doc.fontSize(20).fillColor('#9CA3AF').text('/100');
+    doc.moveDown(1);
+
+    // Score Breakdown
+    doc.fontSize(14).fillColor('#111827').text('Score Breakdown');
+    doc.moveDown(0.5);
+
+    const breakdown = compliance.breakdown || { environmental: 0, social: 0, governance: 0 };
+    doc.fontSize(11).fillColor('#374151');
+    doc.text(`Environmental: ${breakdown.environmental}/100`);
+    doc.text(`Social: ${breakdown.social}/100`);
+    doc.text(`Governance: ${breakdown.governance}/100`);
+    doc.moveDown(1.5);
+
+    // Key Metrics
+    doc.fontSize(14).fillColor('#111827').text('Key Metrics');
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#374151');
+    doc.text(`Total Jobs: ${compliance.metrics?.totalJobs || 0}`);
+    doc.text(`Total Waste Processed: ${((compliance.metrics?.totalWeight || 0) / 2000).toFixed(2)} tons`);
+    doc.text(`Waste Diverted: ${((compliance.metrics?.totalDiverted || 0) / 2000).toFixed(2)} tons`);
+    doc.text(`Carbon Offset: ${((compliance.metrics?.totalCarbon || 0) / 2000).toFixed(2)} tons CO2`);
+    doc.text(`Average Diversion Rate: ${(compliance.metrics?.avgDiversionRate || 0).toFixed(1)}%`);
+    doc.moveDown(1.5);
+
+    // Certifications
+    if (certifications && certifications.length > 0) {
+      doc.fontSize(14).fillColor('#111827').text('Certifications');
+      doc.moveDown(0.5);
+      doc.fontSize(10).fillColor('#374151');
+
+      certifications.forEach(cert => {
+        const status = cert.expires_at && new Date(cert.expires_at) < new Date() ? '(Expired)' :
+                       cert.expires_at && new Date(cert.expires_at) < new Date(Date.now() + 30*24*60*60*1000) ? '(Expiring Soon)' : '';
+        doc.text(`• ${cert.certification_name} - ${cert.issued_by} ${status}`);
+      });
+      doc.moveDown(1.5);
+    }
+
+    // Recent Jobs
+    if (recentJobs && recentJobs.length > 0) {
+      doc.fontSize(14).fillColor('#111827').text('Recent Jobs');
+      doc.moveDown(0.5);
+      doc.fontSize(10).fillColor('#374151');
+
+      recentJobs.slice(0, 5).forEach(job => {
+        doc.text(`• ${job.title || job.job_number} - Score: ${job.esg_score || 0}/100 (${job.verticals?.name || 'N/A'})`);
+      });
+      doc.moveDown(1.5);
+    }
+
+    // Contract Readiness
+    doc.fontSize(14).fillColor('#111827').text('Contract Readiness');
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#374151');
+
+    const isContractReady = compliance.overallScore >= 70;
+    doc.fillColor(isContractReady ? '#059669' : '#D97706')
+       .text(isContractReady ? '✓ Contract Ready' : '○ Not Yet Contract Ready');
+    doc.fillColor('#6B7280').fontSize(10)
+       .text(isContractReady
+         ? 'Your company meets the minimum ESG requirements for government and commercial contracts.'
+         : 'A score of 70 or higher is required for contract readiness.');
+    doc.moveDown(1.5);
+
+    // Footer
+    doc.fontSize(8).fillColor('#9CA3AF');
+    doc.text('This report was generated by ProofGreen ESG Compliance System.', 50, doc.page.height - 50, {
+      align: 'center',
+      width: doc.page.width - 100
+    });
+
+    // Finalize PDF
+    doc.end();
+
+  } catch (error) {
+    logger.error('Generate compliance PDF error:', error);
+    res.status(500).json({ error: 'Failed to generate PDF report' });
+  }
+});
 
 // GET /api/reports
 router.get('/', authenticate, [
