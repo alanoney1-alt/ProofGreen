@@ -15,6 +15,8 @@ const reportRoutes = require('./routes/reports');
 const subscriptionRoutes = require('./routes/subscriptions');
 const documentsRoutes = require('./routes/documents');
 const complianceRoutes = require('./routes/compliance');
+const dataCollectionRoutes = require('./routes/dataCollection');
+const integrationsRoutes = require('./routes/integrations');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -66,6 +68,8 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/compliance', complianceRoutes);
+app.use('/api/data', dataCollectionRoutes);
+app.use('/api/integrations', integrationsRoutes);
 
 // 404 handler
 app.use((req, res) => {
