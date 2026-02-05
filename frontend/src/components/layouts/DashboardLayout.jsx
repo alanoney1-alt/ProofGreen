@@ -10,12 +10,14 @@ import {
   ArrowLeftOnRectangleIcon,
   Bars3Icon,
   XMarkIcon,
-  CreditCardIcon
+  CreditCardIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Jobs', href: '/jobs', icon: BriefcaseIcon },
+  { name: 'Compliance', href: '/compliance', icon: ShieldCheckIcon },
   { name: 'Metrics', href: '/metrics', icon: ChartBarIcon },
   { name: 'Reports', href: '/reports', icon: DocumentTextIcon },
   { name: 'Pricing', href: '/pricing', icon: CreditCardIcon },

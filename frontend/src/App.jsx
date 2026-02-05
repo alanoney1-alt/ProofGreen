@@ -18,6 +18,7 @@ import Metrics from './pages/Metrics'
 import Settings from './pages/Settings'
 import Pricing from './pages/Pricing'
 import PublicReport from './pages/PublicReport'
+import Compliance from './pages/Compliance'
 
 // Protected Route wrapper
 function ProtectedRoute({ children }) {
@@ -67,6 +68,7 @@ function App() {
         <Route path="/metrics" element={<Metrics />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/pricing" element={<Pricing />} />
+        <Route path="/compliance" element={<Compliance />} />
       </Route>
 
       {/* Catch all */}

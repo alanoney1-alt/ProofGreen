@@ -13,6 +13,8 @@ const OpenAI = require('openai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { supabase } = require('../utils/supabase');
 const { logger } = require('../utils/logger');
+const complianceService = require('../services/complianceService');
+const formService = require('../services/formService');
 
 // Initialize AI clients
 const openai = new OpenAI({
@@ -52,6 +54,10 @@ async function processJobPhoto(jobId, photoBase64, companyId) {
     const reportResult = await generateReport(jobId, companyId);
     logger.info(`Report generated: ${reportResult.report_id}`);
 
+    // Step 6: Check ESG compliance
+    const complianceResult = await checkESGCompliance(jobId, companyId, jobTypeResult.vertical_id);
+    logger.info(`ESG compliance check complete: score ${complianceResult.esgScore.overall}`);
+
     // Mark job as AI processed
     await supabase
       .from('jobs')
@@ -59,7 +65,8 @@ async function processJobPhoto(jobId, photoBase64, companyId) {
         ai_processed: true,
         ai_processed_at: new Date().toISOString(),
         ai_confidence: analysisResult.confidence,
-        vertical_id: jobTypeResult.vertical_id
+        vertical_id: jobTypeResult.vertical_id,
+        esg_score: complianceResult.esgScore.overall
       })
       .eq('id', jobId);
 
@@ -68,7 +75,9 @@ async function processJobPhoto(jobId, photoBase64, companyId) {
       job_type: jobTypeResult.job_type,
       carbon_offset: carbonResult.carbon_offset_lbs,
       new_milestones: milestoneResult.new_milestones.length,
-      report_id: reportResult.report_id
+      report_id: reportResult.report_id,
+      esg_score: complianceResult.esgScore.overall,
+      compliance_status: complianceResult.complianceStatus
     });
 
     return {
@@ -77,7 +86,8 @@ async function processJobPhoto(jobId, photoBase64, companyId) {
       jobType: jobTypeResult,
       carbon: carbonResult,
       milestones: milestoneResult,
-      report: reportResult
+      report: reportResult,
+      compliance: complianceResult
     };
   } catch (error) {
     logger.error('Agent processing error:', error);
@@ -632,6 +642,341 @@ Write a professional summary highlighting the environmental impact. Be specific 
 }
 
 /**
+ * Function 6: Check ESG compliance and store vertical-specific data
+ */
+async function checkESGCompliance(jobId, companyId, verticalId) {
+  const executionId = await logAgentExecution(jobId, companyId, 'compliance_agent', 'checkESGCompliance', { jobId, verticalId });
+
+  try {
+    // Get job details with items
+    const { data: job } = await supabase
+      .from('jobs')
+      .select(`
+        *,
+        verticals (id, name, slug),
+        job_items (*)
+      `)
+      .eq('id', jobId)
+      .single();
+
+    if (!job) {
+      throw new Error('Job not found');
+    }
+
+    const verticalSlug = job.verticals?.slug || 'junk_removal';
+
+    // Auto-populate ESG data from job items
+    const esgData = generateESGDataFromJob(job, verticalSlug);
+
+    // Store vertical-specific ESG data
+    await complianceService.storeVerticalESGData(jobId, verticalSlug, esgData);
+
+    // Calculate ESG score for this job
+    const esgScore = await complianceService.calculateJobESGScore(jobId);
+
+    // Get company's overall compliance status
+    const companyCompliance = await complianceService.calculateCompanyCompliance(companyId);
+
+    // Check contract readiness for various contract types
+    const governmentReadiness = verticalId
+      ? await complianceService.checkContractReadiness(companyId, 'government', verticalId)
+      : { ready: false, score: 0 };
+
+    const commercialReadiness = verticalId
+      ? await complianceService.checkContractReadiness(companyId, 'commercial', verticalId)
+      : { ready: false, score: 0 };
+
+    // Get expiring certifications/documents
+    const expiringItems = await complianceService.getExpiringItems(companyId, 30);
+
+    // Generate compliance recommendations using AI
+    const recommendations = await generateComplianceRecommendations(
+      job,
+      esgScore,
+      companyCompliance,
+      expiringItems
+    );
+
+    const result = {
+      esgScore,
+      esgData,
+      complianceStatus: {
+        jobScore: esgScore.overall,
+        companyScore: companyCompliance.overallScore,
+        governmentContractReady: governmentReadiness.ready,
+        commercialContractReady: commercialReadiness.ready,
+        governmentReadinessScore: governmentReadiness.score,
+        commercialReadinessScore: commercialReadiness.score
+      },
+      expiringItems: expiringItems.slice(0, 5), // Top 5 expiring items
+      recommendations,
+      breakdown: esgScore.breakdown
+    };
+
+    await completeAgentExecution(executionId, 'completed', result);
+
+    return result;
+  } catch (error) {
+    await completeAgentExecution(executionId, 'failed', null, error.message);
+    logger.error('ESG compliance check error:', error);
+    // Return default values on error
+    return {
+      esgScore: { overall: 0, breakdown: { environmental: 0, social: 0, governance: 0 } },
+      complianceStatus: {
+        jobScore: 0,
+        companyScore: 0,
+        governmentContractReady: false,
+        commercialContractReady: false
+      },
+      expiringItems: [],
+      recommendations: []
+    };
+  }
+}
+
+/**
+ * Helper: Generate ESG data from job items and metrics
+ */
+function generateESGDataFromJob(job, verticalSlug) {
+  const items = job.job_items || [];
+  const totalWeight = job.total_weight_lbs || 0;
+  const recycledWeight = job.recycled_weight_lbs || 0;
+  const donatedWeight = job.donated_weight_lbs || 0;
+
+  // Base ESG data applicable to all verticals
+  const baseData = {
+    total_weight_lbs: totalWeight,
+    diverted_weight_lbs: recycledWeight + donatedWeight,
+    diversion_rate: totalWeight > 0 ? ((recycledWeight + donatedWeight) / totalWeight) * 100 : 0,
+    carbon_offset_lbs: job.carbon_offset_lbs || 0,
+    job_date: job.completed_at || job.scheduled_date,
+    items_count: items.length
+  };
+
+  // Vertical-specific data generation
+  const verticalSpecificData = {
+    junk_removal: () => ({
+      ...baseData,
+      recycled_weight_lbs: recycledWeight,
+      donated_weight_lbs: donatedWeight,
+      landfill_weight_lbs: job.landfill_weight_lbs || 0,
+      donation_value_usd: estimateDonationValue(items.filter(i => i.disposal_method === 'donated')),
+      recyclable_categories: [...new Set(items.filter(i => i.recyclable).map(i => i.category))]
+    }),
+
+    hvac: () => ({
+      ...baseData,
+      refrigerant_type: extractFromItems(items, 'refrigerant') || 'Unknown',
+      refrigerant_lbs_recovered: estimateRefrigerantRecovered(items),
+      old_seer_rating: 10, // Default, should be captured in form
+      new_seer_rating: 16, // Default estimate
+      equipment_recycled: items.some(i => i.category === 'hvac' && i.disposal_method === 'recycled')
+    }),
+
+    roofing: () => ({
+      ...baseData,
+      shingles_recycled_lbs: items.filter(i => i.subcategory?.includes('shingle')).reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      metal_recycled_lbs: items.filter(i => i.category === 'metal').reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      cool_roof_installed: false, // Should be captured in form
+      energy_star_rated: false // Should be captured in form
+    }),
+
+    cleaning: () => ({
+      ...baseData,
+      green_products_used: true, // Default assumption
+      green_product_percentage: 75,
+      water_usage_gallons: estimateWaterUsage(job),
+      square_footage_cleaned: job.square_footage || 0
+    }),
+
+    landscaping: () => ({
+      ...baseData,
+      organic_waste_composted_lbs: items.filter(i => i.disposal_method === 'compost').reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      native_plants_installed: 0, // Should be captured in form
+      chemical_free: true,
+      water_efficient_irrigation: false
+    }),
+
+    plumbing: () => ({
+      ...baseData,
+      water_savings_gallons_per_year: estimateWaterSavings(job),
+      low_flow_fixtures_installed: 0,
+      pipe_material_recycled_lbs: items.filter(i => i.category === 'metal').reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      lead_free_materials: true
+    }),
+
+    electrical: () => ({
+      ...baseData,
+      energy_savings_kwh_per_year: estimateEnergySavings(job),
+      led_fixtures_installed: 0,
+      copper_recycled_lbs: items.filter(i => i.subcategory?.includes('copper')).reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      smart_controls_installed: false
+    }),
+
+    demolition: () => ({
+      ...baseData,
+      concrete_recycled_lbs: items.filter(i => i.subcategory?.includes('concrete')).reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      metal_recycled_lbs: items.filter(i => i.category === 'metal').reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      wood_recycled_lbs: items.filter(i => i.subcategory?.includes('wood')).reduce((sum, i) => sum + (i.weight_lbs || 0), 0),
+      hazmat_properly_disposed: true,
+      deconstruction_vs_demolition: 'demolition'
+    })
+  };
+
+  const generator = verticalSpecificData[verticalSlug] || verticalSpecificData.junk_removal;
+  return generator();
+}
+
+/**
+ * Helper: Estimate donation value from donated items
+ */
+function estimateDonationValue(donatedItems) {
+  const valuationRates = {
+    furniture: 50,
+    electronics: 30,
+    appliance: 75,
+    general: 20
+  };
+
+  return donatedItems.reduce((total, item) => {
+    const rate = valuationRates[item.category] || valuationRates.general;
+    return total + (item.weight_lbs || 0) * (rate / 100);
+  }, 0);
+}
+
+/**
+ * Helper: Extract specific data from items
+ */
+function extractFromItems(items, keyword) {
+  const item = items.find(i =>
+    i.name?.toLowerCase().includes(keyword) ||
+    i.subcategory?.toLowerCase().includes(keyword)
+  );
+  return item?.name || null;
+}
+
+/**
+ * Helper: Estimate refrigerant recovered
+ */
+function estimateRefrigerantRecovered(items) {
+  const hvacItems = items.filter(i => i.category === 'hvac');
+  // Rough estimate: 2-5 lbs per unit
+  return hvacItems.length * 3;
+}
+
+/**
+ * Helper: Estimate water usage for cleaning jobs
+ */
+function estimateWaterUsage(job) {
+  const sqft = job.square_footage || 1000;
+  // Rough estimate: 0.1 gallons per sq ft
+  return sqft * 0.1;
+}
+
+/**
+ * Helper: Estimate water savings for plumbing jobs
+ */
+function estimateWaterSavings(job) {
+  // Rough estimate based on fixture replacements
+  return 5000; // gallons per year default
+}
+
+/**
+ * Helper: Estimate energy savings for electrical jobs
+ */
+function estimateEnergySavings(job) {
+  // Rough estimate based on LED replacements
+  return 500; // kWh per year default
+}
+
+/**
+ * Generate AI-powered compliance recommendations
+ */
+async function generateComplianceRecommendations(job, esgScore, companyCompliance, expiringItems) {
+  try {
+    const prompt = `Based on this ESG data, provide 3-5 specific, actionable recommendations to improve compliance:
+
+Job ESG Score: ${esgScore.overall}/100
+- Environmental: ${esgScore.breakdown?.environmental || 0}/100
+- Social: ${esgScore.breakdown?.social || 0}/100
+- Governance: ${esgScore.breakdown?.governance || 0}/100
+
+Company Overall Score: ${companyCompliance.overallScore}/100
+Expiring Certifications/Documents: ${expiringItems.length}
+
+Service Type: ${job.verticals?.name || 'General'}
+Diversion Rate: ${job.diversion_rate?.toFixed(1) || 0}%
+Carbon Offset: ${job.carbon_offset_lbs?.toFixed(0) || 0} lbs
+
+Return a JSON array of recommendations with format:
+[{"priority": "high/medium/low", "category": "environmental/social/governance", "recommendation": "specific action", "impact": "expected improvement"}]`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const content = response.content[0].text;
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+
+    return getDefaultRecommendations(esgScore);
+  } catch (error) {
+    logger.warn('AI recommendations generation failed:', error.message);
+    return getDefaultRecommendations(esgScore);
+  }
+}
+
+/**
+ * Get default recommendations based on scores
+ */
+function getDefaultRecommendations(esgScore) {
+  const recommendations = [];
+
+  if (esgScore.breakdown?.environmental < 60) {
+    recommendations.push({
+      priority: 'high',
+      category: 'environmental',
+      recommendation: 'Increase waste diversion rate by partnering with more recycling facilities',
+      impact: 'Could improve environmental score by 15-20 points'
+    });
+  }
+
+  if (esgScore.breakdown?.social < 60) {
+    recommendations.push({
+      priority: 'medium',
+      category: 'social',
+      recommendation: 'Establish relationships with local charities for item donations',
+      impact: 'Could improve social score by 10-15 points'
+    });
+  }
+
+  if (esgScore.breakdown?.governance < 60) {
+    recommendations.push({
+      priority: 'high',
+      category: 'governance',
+      recommendation: 'Ensure all required certifications and documentation are current',
+      impact: 'Could improve governance score by 20+ points'
+    });
+  }
+
+  if (esgScore.overall >= 70) {
+    recommendations.push({
+      priority: 'low',
+      category: 'governance',
+      recommendation: 'Consider pursuing third-party ESG certification to validate your practices',
+      impact: 'Increased credibility for government contracts'
+    });
+  }
+
+  return recommendations;
+}
+
+/**
  * Helper: Log agent execution start
  */
 async function logAgentExecution(jobId, companyId, agentType, functionName, inputData) {
@@ -696,5 +1041,6 @@ module.exports = {
   identifyJobType,
   calculateCarbon,
   checkMilestones,
-  generateReport
+  generateReport,
+  checkESGCompliance
 };

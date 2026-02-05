@@ -11,7 +11,8 @@ const {
   identifyJobType,
   calculateCarbon,
   checkMilestones,
-  generateReport
+  generateReport,
+  checkESGCompliance
 } = require('../agents/esgAgent');
 
 // Configure multer for photo uploads
@@ -238,6 +239,43 @@ router.post('/generate-report', authenticate, [
   } catch (error) {
     logger.error('Report generation error:', error);
     res.status(500).json({ error: 'Report generation failed' });
+  }
+});
+
+// POST /api/agent/check-esg-compliance
+// Step 6: Check ESG compliance
+router.post('/check-esg-compliance', authenticate, [
+  body('jobId').notEmpty()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { jobId } = req.body;
+
+    // Verify job belongs to company
+    const { data: job } = await supabase
+      .from('jobs')
+      .select('id, vertical_id')
+      .eq('id', jobId)
+      .eq('company_id', req.companyId)
+      .single();
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const result = await checkESGCompliance(jobId, req.companyId, job.vertical_id);
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    logger.error('ESG compliance check error:', error);
+    res.status(500).json({ error: 'ESG compliance check failed' });
   }
 });
 
