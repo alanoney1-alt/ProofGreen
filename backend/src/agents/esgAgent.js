@@ -15,6 +15,11 @@ const { supabase } = require('../utils/supabase');
 const { logger } = require('../utils/logger');
 const complianceService = require('../services/complianceService');
 const formService = require('../services/formService');
+const {
+  calculateConfidenceScore,
+  assessImageQuality,
+  formatConfidenceForDisplay
+} = require('../services/confidenceService');
 
 // Initialize AI clients
 const openai = new OpenAI({
@@ -185,19 +190,56 @@ Respond ONLY with valid JSON in this exact format:
     const content = response.choices[0].message.content;
 
     // Parse JSON from response
-    let result;
+    let rawResult;
     try {
       // Try to extract JSON from markdown code blocks if present
       const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
-      result = JSON.parse(jsonMatch[1].trim());
+      rawResult = JSON.parse(jsonMatch[1].trim());
     } catch (parseError) {
       logger.error('Failed to parse GPT response:', content);
-      result = {
+      rawResult = {
         items: [],
         scene_description: 'Unable to parse response',
         confidence: 0
       };
     }
+
+    // Calculate comprehensive confidence score
+    const imageMetadata = assessImageQuality(
+      Buffer.from(photoBase64, 'base64'),
+      'image/jpeg'
+    );
+
+    const confidenceResult = calculateConfidenceScore(rawResult, imageMetadata);
+    const displayConfidence = formatConfidenceForDisplay(confidenceResult);
+
+    // Enhanced result with confidence scoring
+    const result = {
+      items: rawResult.items,
+      scene_description: rawResult.scene_description,
+      // AI's raw confidence
+      raw_confidence: rawResult.confidence,
+      // Comprehensive confidence assessment
+      confidence: {
+        score: confidenceResult.score,
+        level: confidenceResult.level,
+        factors: confidenceResult.factors,
+        warnings: confidenceResult.warnings,
+        needsReview: confidenceResult.needsReview,
+        recommendations: confidenceResult.recommendations
+      },
+      // Display-ready confidence data
+      display: displayConfidence.display,
+      // CRITICAL: Always require user verification
+      userMustVerify: true,
+      // AI suggestions for user to verify/modify
+      aiSuggestions: rawResult.items,
+      // Metadata for tracking
+      metadata: confidenceResult.metadata,
+      // Next step guidance
+      next_step: confidenceResult.needsReview ?
+        'manual_review_required' : 'confirm_and_submit'
+    };
 
     await completeAgentExecution(executionId, 'completed', result, null, response.usage?.total_tokens);
 

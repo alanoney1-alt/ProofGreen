@@ -350,4 +350,191 @@ router.get('/status/:jobId', authenticate, async (req, res) => {
   }
 });
 
+// POST /api/agent/analyze-job
+// Analyze a job photo with full confidence scoring
+// Returns AI suggestions that USER MUST VERIFY before submission
+router.post('/analyze-job', authenticate, upload.single('photo'), async (req, res) => {
+  try {
+    const { jobId } = req.body;
+    let photoBase64;
+
+    if (req.file) {
+      photoBase64 = req.file.buffer.toString('base64');
+    } else if (req.body.photoBase64) {
+      photoBase64 = req.body.photoBase64;
+    } else {
+      return res.status(400).json({ error: 'Photo is required' });
+    }
+
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+
+    // Verify job belongs to company
+    const { data: job } = await supabase
+      .from('jobs')
+      .select('id, job_number, vertical_id')
+      .eq('id', jobId)
+      .eq('company_id', req.companyId)
+      .single();
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Perform AI analysis with confidence scoring
+    const aiResult = await analyzePhoto(photoBase64, jobId, req.companyId);
+
+    // Store analysis as pending verification
+    await supabase
+      .from('job_ai_analyses')
+      .upsert({
+        job_id: jobId,
+        company_id: req.companyId,
+        ai_items: aiResult.items,
+        ai_confidence_score: aiResult.confidence.score,
+        ai_confidence_level: aiResult.confidence.level,
+        confidence_factors: aiResult.confidence.factors,
+        status: 'pending_verification',
+        created_at: new Date().toISOString()
+      });
+
+    res.json({
+      success: true,
+      job_id: jobId,
+      job_number: job.job_number,
+      ai_analysis: {
+        items: aiResult.items,
+        scene_description: aiResult.scene_description,
+        total_estimated_weight: aiResult.metadata?.totalEstimatedWeight || 0
+      },
+      confidence: aiResult.confidence,
+      display: aiResult.display,
+      // CRITICAL: User must verify
+      userMustVerify: true,
+      next_step: aiResult.next_step,
+      // Instructions for user
+      instructions: {
+        title: aiResult.confidence.needsReview ?
+          'Manual Review Required' : 'Please Confirm Analysis',
+        message: aiResult.confidence.needsReview ?
+          'AI confidence is low. Please carefully review ALL items and weights.' :
+          'AI analysis looks good. Please verify accuracy before submitting.',
+        requiredActions: [
+          'Review each detected item',
+          'Correct any misidentified items',
+          'Enter actual weight from scale/weight ticket',
+          'Confirm legal attestation'
+        ]
+      }
+    });
+  } catch (error) {
+    logger.error('Analyze job error:', error);
+    res.status(500).json({ error: 'Job analysis failed' });
+  }
+});
+
+// POST /api/agent/confirm-analysis
+// User confirms verified analysis - REQUIRED before data is saved
+router.post('/confirm-analysis', authenticate, [
+  body('jobId').notEmpty(),
+  body('verifiedItems').isArray(),
+  body('actualWeight').isNumeric(),
+  body('attestation').isBoolean().equals('true')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: errors.array(),
+        message: 'You must verify all items, enter actual weight, and confirm attestation'
+      });
+    }
+
+    const { jobId, verifiedItems, actualWeight, attestation, notes } = req.body;
+
+    if (!attestation) {
+      return res.status(400).json({
+        error: 'Attestation required',
+        message: 'You must confirm the legal attestation before submitting'
+      });
+    }
+
+    // Verify job belongs to company
+    const { data: job } = await supabase
+      .from('jobs')
+      .select('id')
+      .eq('id', jobId)
+      .eq('company_id', req.companyId)
+      .single();
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Get original AI analysis for comparison
+    const { data: aiAnalysis } = await supabase
+      .from('job_ai_analyses')
+      .select('*')
+      .eq('job_id', jobId)
+      .single();
+
+    // Calculate weight discrepancy
+    const aiEstimatedWeight = aiAnalysis?.ai_items?.reduce(
+      (sum, item) => sum + (item.weight_lbs || 0), 0
+    ) || 0;
+    const weightDiscrepancy = Math.abs(actualWeight - aiEstimatedWeight);
+    const discrepancyPercent = aiEstimatedWeight > 0 ?
+      (weightDiscrepancy / aiEstimatedWeight) * 100 : 0;
+
+    // Log the verification for audit trail
+    await supabase
+      .from('job_ai_analyses')
+      .update({
+        verified_items: verifiedItems,
+        verified_weight: actualWeight,
+        user_attested: true,
+        user_attested_at: new Date().toISOString(),
+        user_id: req.userId,
+        status: 'verified',
+        weight_discrepancy_lbs: weightDiscrepancy,
+        weight_discrepancy_percent: discrepancyPercent,
+        verification_notes: notes
+      })
+      .eq('job_id', jobId);
+
+    // Now process with verified data
+    const carbonResult = await calculateCarbon(jobId, verifiedItems, req.companyId);
+
+    // Update job with user-verified weight (override AI estimate)
+    await supabase
+      .from('jobs')
+      .update({
+        total_weight_lbs: actualWeight,
+        user_verified: true,
+        user_verified_at: new Date().toISOString(),
+        user_verified_by: req.userId
+      })
+      .eq('id', jobId);
+
+    res.json({
+      success: true,
+      job_id: jobId,
+      verification: {
+        items_verified: verifiedItems.length,
+        actual_weight: actualWeight,
+        ai_estimated_weight: aiEstimatedWeight,
+        weight_discrepancy: weightDiscrepancy,
+        discrepancy_percent: discrepancyPercent.toFixed(1)
+      },
+      carbon: carbonResult,
+      message: 'Analysis verified and saved successfully'
+    });
+  } catch (error) {
+    logger.error('Confirm analysis error:', error);
+    res.status(500).json({ error: 'Failed to confirm analysis' });
+  }
+});
+
 module.exports = router;
