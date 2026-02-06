@@ -7,7 +7,17 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
 const OpenAI = require('openai');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy-initialized OpenAI client (avoids crash if key missing at startup)
+let openai = null;
+function getOpenAI() {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY required for document analysis');
+    }
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openai;
+}
 
 // Configure multer for document uploads
 const storage = multer.memoryStorage();
@@ -388,7 +398,7 @@ router.get('/meta/types', authenticate, async (req, res) => {
 // AI Document Categorization
 async function categorizeDocument(base64Data, mimeType) {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: 'gpt-4o',
       max_tokens: 500,
       messages: [
