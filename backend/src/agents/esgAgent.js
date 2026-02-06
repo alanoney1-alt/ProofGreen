@@ -21,14 +21,29 @@ const {
   formatConfidenceForDisplay
 } = require('../services/confidenceService');
 
-// Initialize AI clients
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Lazy-initialized AI clients (avoids crash if keys missing)
+let openai = null;
+let anthropic = null;
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
+function getOpenAI() {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required for AI analysis');
+    }
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openai;
+}
+
+function getAnthropic() {
+  if (!anthropic) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is required for AI analysis');
+    }
+    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return anthropic;
+}
 
 /**
  * Main entry point - process a job photo through the autonomous agent
@@ -159,7 +174,7 @@ Respond ONLY with valid JSON in this exact format:
   "confidence": 0.85
 }`;
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
@@ -572,7 +587,7 @@ async function generateReport(jobId, companyId) {
     // Use Claude to generate a professional summary
     let summary;
     try {
-      const summaryResponse = await anthropic.messages.create({
+      const summaryResponse = await getAnthropic().messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 500,
         messages: [
@@ -953,7 +968,7 @@ Carbon Offset: ${job.carbon_offset_lbs?.toFixed(0) || 0} lbs
 Return a JSON array of recommendations with format:
 [{"priority": "high/medium/low", "category": "environmental/social/governance", "recommendation": "specific action", "impact": "expected improvement"}]`;
 
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 500,
       messages: [{ role: 'user', content: prompt }]
