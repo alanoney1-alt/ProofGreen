@@ -10,9 +10,17 @@ const greenVerifier = require('./greenVerifier');
 const taxCreditMatcher = require('./taxCreditMatcher');
 const { createClient } = require('@supabase/supabase-js');
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
+// Lazy-initialized Anthropic client
+let anthropic = null;
+function getAnthropic() {
+  if (!anthropic) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY required for agent orchestration');
+    }
+    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return anthropic;
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -428,7 +436,7 @@ Respond with JSON:
   "extracted_data": {}
 }`;
 
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
     messages: [{ role: 'user', content: routingPrompt }]
@@ -471,7 +479,7 @@ ${JSON.stringify(context || {})}`;
     { role: 'user', content: message }
   ];
 
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
     system: systemPrompt,

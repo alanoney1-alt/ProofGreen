@@ -7,10 +7,17 @@ const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
 const fs = require('fs');
 
-// Initialize Anthropic client for document analysis
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
+// Lazy-initialized Anthropic client for document analysis
+let anthropic = null;
+function getAnthropic() {
+  if (!anthropic) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY required for document processing');
+    }
+    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return anthropic;
+}
 
 /**
  * Document types and their expected fields for extraction
@@ -85,7 +92,7 @@ Please respond in JSON format with the following structure:
 Be precise with numbers, dates, and technical specifications. If a field is not present or unclear, set it to null.`;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       messages: [
@@ -175,7 +182,7 @@ Respond in JSON format:
 }`;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       messages: [
@@ -282,7 +289,7 @@ Respond in JSON:
 }`;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       messages: [
@@ -373,7 +380,7 @@ Respond in JSON:
 }`;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       messages: [
