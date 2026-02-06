@@ -19,6 +19,11 @@ const dataCollectionRoutes = require('./routes/dataCollection');
 const integrationsRoutes = require('./routes/integrations');
 const agentsRoutes = require('./routes/agents');
 const telematicsRoutes = require('./routes/telematics');
+const referralsRoutes = require('./routes/referrals');
+
+// Import services for cron jobs
+const { runDailyHealthChecks } = require('./services/healthScoreService');
+const { processExpiringTrials } = require('./services/trialService');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -74,6 +79,38 @@ app.use('/api/data', dataCollectionRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/agents', agentsRoutes);
 app.use('/api/telematics', telematicsRoutes);
+app.use('/api/referrals', referralsRoutes);
+
+// =============================================================================
+// Cron Jobs - Health Checks & Trial Processing
+// =============================================================================
+
+// Run daily health checks at 2 AM
+const cron = require('node-cron');
+
+// Daily health score checks (identifies at-risk customers)
+cron.schedule('0 2 * * *', async () => {
+  logger.info('Running daily health checks...');
+  try {
+    const result = await runDailyHealthChecks();
+    logger.info('Daily health checks complete:', result);
+  } catch (error) {
+    logger.error('Daily health checks failed:', error);
+  }
+});
+
+// Process expiring trials at 6 AM
+cron.schedule('0 6 * * *', async () => {
+  logger.info('Processing expiring trials...');
+  try {
+    const result = await processExpiringTrials();
+    logger.info('Trial processing complete:', result);
+  } catch (error) {
+    logger.error('Trial processing failed:', error);
+  }
+});
+
+logger.info('Cron jobs scheduled: Health checks at 2 AM, Trial processing at 6 AM');
 
 // 404 handler
 app.use((req, res) => {
