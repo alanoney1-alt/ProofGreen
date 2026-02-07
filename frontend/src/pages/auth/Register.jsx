@@ -26,9 +26,10 @@ export default function Register() {
   const fetchVerticals = async () => {
     try {
       const response = await authAPI.getVerticals()
-      setVerticals(response.data.verticals)
+      setVerticals(response.data?.verticals || [])
     } catch (error) {
       console.error('Failed to fetch verticals:', error)
+      setVerticals([])
     }
   }
 
@@ -208,7 +209,7 @@ export default function Register() {
                 Choose all that apply. You can change this later.
               </p>
               <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
-                {verticals.map((vertical) => (
+                {(verticals || []).map((vertical) => (
                   <button
                     key={vertical.id}
                     type="button"
